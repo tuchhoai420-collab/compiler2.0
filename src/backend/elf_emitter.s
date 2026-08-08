@@ -42,16 +42,19 @@
         .quad 0
         .quad 0x10000
 
-    // Rutina nativa de impresión decimal (output a STDOUT, zero-libc).
-    // Entrada: w0 = uint32. Usa x9 como contador (evita bug mov w2,w1).
-    // NO incluye 'ret' final (cae al epílogo).
+    // Rutina nativa de impresión decimal signed (output a STDOUT, zero-libc).
+    // Entrada: w0 = int32 signed. Detecta signo, imprime '-' si negativo.
+    // Diseño inline puro (sin frame C). Cae al epílogo.
     .align 4
     print_dec_bytes:
         .word 0xd100c3ff, 0xd2800009, 0x910073e2, 0x52800143
-        .word 0x1ac30804, 0x1b038085, 0x2a0403e0, 0x1100c0a5
-        .word 0xd1000442, 0x39000045, 0x91000529, 0x35ffff20
-        .word 0xd2800020, 0xaa0203e1, 0xaa0903e2, 0xd2800808
-        .word 0xd4000001, 0x9100c3ff
+        .word 0x5280000a, 0x37f80140, 0x1ac30804, 0x1b038085
+        .word 0x2a0403e0, 0x1100c0a5, 0xd1000442, 0x39000045
+        .word 0x91000529, 0x35ffff20, 0x14000004, 0x5280002a
+        .word 0x4b0003e0, 0x17fffff5, 0x360000aa, 0xd1000442
+        .word 0x528005a5, 0x39000045, 0x91000529, 0xd2800020
+        .word 0xaa0203e1, 0xaa0903e2, 0xd2800808, 0xd4000001
+        .word 0x9100c3ff
 
 .section .text
 
@@ -182,9 +185,9 @@ emit_print_tail:
     movz    w12, #0x0000
     movk    w12, #0x1e26, lsl #16
     str     w12, [x20], #4
-    // copia print_dec_bytes (19 palabras, sin ret)
+    // copia print_dec_bytes (29 palabras, sin ret)
     ldr     x14, =print_dec_bytes
-    mov     w15, #19
+    mov     w15, #29
 print_copy:
     ldr     w12, [x14], #4
     str     w12, [x20], #4
