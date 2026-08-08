@@ -1,0 +1,30 @@
+# ====================================================================
+# EALN-64 CI — Pure Assembly ARM64, zero-libc
+# Cross-compila sobre x86_64 (ubuntu-latest) y ejecuta tests bajo qemu.
+# ====================================================================
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout código fuente
+        uses: actions/checkout@v4
+
+      - name: Instalar cross-toolchain aarch64 + qemu
+        run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu qemu-user-static
+
+      - name: Cross-compilar compilador (as/ld aarch64)
+        run: make clean && make CROSS=aarch64-linux-gnu-
+
+      - name: Verificar binario hosteado aarch64
+        run: file ealn-compiler
+
+      - name: Ejecutar test-suite bajo qemu (output determinista)
+        run: QEMU=qemu-aarch64-static bash tests/run_tests.sh --measure

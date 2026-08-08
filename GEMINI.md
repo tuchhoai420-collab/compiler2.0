@@ -24,8 +24,10 @@ Para garantizar la consistencia en todos los archivos ensambladores de la base d
 *   **`x0 - x3`**: Punteros de Contexto (Arenas de memoria y asignación rápida).
 *   **`x4 - x7`**: Argumentos Escalares en llamadas de funciones internas.
 *   **`x8`**: Registro exclusivo para números de llamadas a sistema (Linux Kernel Syscalls).
-*   **`x28`**: Puntero de Estado del Agente (Inercia global en caché).
-*   **`v0 - v15`**: Acumuladores e instrucciones vectoriales SIMD obligatorios.
+*   **`x19 - x28`**: Registros callee-saved. Obligatorio preservar con `stp/ldp` si se usan (`x25`/`x26` = argc/argv salvados en `_start`; `x19`/`x20` = I/O; `x7`/`w9`... según módulo). Nunca asumir que `init_arena` o `map_file_zero_copy` preservan `x0-x18`.
+*   **`v0 - v15`**: Acumuladores e instrucciones vectoriales SIMD (NEON).
+*   **`sp`**: Stack. Layout del kernel en `_start`: `[sp]=argc`, `[sp+8]=argv[0]`, `[sp+16]=argv[1]`. Se debe leer argc/argv de `sp` (no de registros) pues no se enlaza CRT0.
+*   **`x30` (lr)**: Link register. Preservar en `stp/ldp` si la función invoca a otras.
 
 ---
 
@@ -35,10 +37,12 @@ El pipeline del compilador está compuesto por los siguientes módulos integrado
 
 ### A. Inicialización y Bootloader (`src/boot/init.s`)
 *   Define el punto de entrada real del ejecutable (`_start`).
+*   Captura `argc`/`argv` desde la pila (`sp`) antes de inicializar la arena (el runtime es `ld` puro; el kernel los coloca allí, no en registros).
 *   Inicializa la arena de memoria de 1GB (`init_arena`).
-*   Realiza un mapeo de memoria Zero-Copy del archivo fuente `tests/prueba.esp` (`map_file_zero_copy`).
+*   Resuelve el path del archivo fuente: usa `argv[1]` si se pasa, con fallback a `tests/prueba.esp`.
+*   Realiza un mapeo de memoria Zero-Copy del fuente (`map_file_zero_copy`).
 *   Ejecuta secuencialmente el Lexer (`iniciar_lexer`) y el Parser (`iniciar_parser`).
-*   Inicia el generador ELF (`emitir_elf`) y finaliza el proceso con una salida limpia (`exit` con código 0).
+*   Inicia el generador ELF (`emitir_elf`) y finaliza con `exit(0)`.
 
 ### B. Gestor de Memoria Arena (`src/core/arena_allocator.s`)
 *   Mapea 1GB de memoria virtual usando la syscall `mmap` (`#222`) con flags `MAP_PRIVATE | MAP_ANONYMOUS`.

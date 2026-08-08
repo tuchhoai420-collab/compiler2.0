@@ -5,6 +5,8 @@
 #   ./run_tests.sh --measure       -> + reporte de densidad (bytes/opcodes/tokens)
 #
 # Cada caso: <nombre>.esp con expected en <nombre>.expected
+# Compatibilidad cross: exporta QEMU=qemu-aarch64-static para ejecutar
+# los binarios generados bajo emulación (usado en CI x86_64).
 # ====================================================================
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -20,6 +22,14 @@ if [ ! -x ./ealn-compiler ]; then
   echo "ERROR: compilador no generado" >&2; exit 1
 fi
 
+# Wrapper para ejecutar salida.out: usa QEMU si está definido (cross),
+# o ejecuta directamente en host native (arm64).
+QEMU="${QEMU:-}"
+run_bin() {
+  if [ -n "$QEMU" ]; then "$QEMU" "$ROOT/salida.out" 2>/dev/null
+  else "$ROOT/salida.out"; fi
+}
+
 TOTAL=0; PASS=0; FAIL=0
 echo "=== TEST SUITE ==="
 for fuente in tests/cases/*.esp; do
@@ -32,7 +42,7 @@ for fuente in tests/cases/*.esp; do
   if ! ./ealn-compiler "$fuente" >/dev/null 2>&1; then
     echo "[FAIL] $base: error de compilación"; FAIL=$((FAIL+1)); continue
   fi
-  out=$(./salida.out; rc=$? 2>/dev/null); rc=$?
+  out=$(run_bin; rc=$?) 2>/dev/null; rc=$?
   if [ $MEASURE -eq 1 ]; then
     bytes=$(stat -c%s "$ROOT/salida.out" 2>/dev/null || echo "?")
     # Contar opcodes: salida.out es raw, ~4 bytes/opcode (header excluido)

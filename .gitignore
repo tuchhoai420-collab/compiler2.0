@@ -1,11 +1,25 @@
-# Artefactos de compilación (EALN-64 zero-libc)
+# Artefactos de compilación (EALN-64, zero-libc, pure Assembly)
 *.o
+*.so
 *.bin
 
-# Binarios generados
+# Binarios generados (no trackear output determinista)
 /ealn-compiler
 /salida.out
 
-# System / editor
+# Salidas de tests
+/tests/cases/*.out
+/tests/cases/*.tmp
+
+# System / editor / IDE
 .DS_Store
 *.swp
+*~
+__pycache__/
+*.pyc
+.vscode/
+.idea/
+
+# CI / coverage
+.coverage
+*.log
