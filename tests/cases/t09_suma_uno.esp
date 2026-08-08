@@ -1,0 +1,3 @@
+sea a = [100];
+sea b = [5];
+sea c = a + b;
