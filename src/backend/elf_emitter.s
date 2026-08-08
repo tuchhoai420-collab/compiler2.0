@@ -43,8 +43,10 @@
         .quad 0x10000
 
     // Rutina nativa de impresión decimal (output a STDOUT, zero-libc).
-    // Entrada: w0 = valor. Ramas internas relativas: debe emitirse contigua.
-    // NO incluye el 'ret' final (cae al epílogo exit del programa generado).
+    // Entrada: w0 = valor unsigned (0..4294967295). Ramas internas relativas.
+    // NO incluye 'ret' final (cae al epílogo).
+    // NOTA: version actual imprime unsigned. Signed queda pendiente (Hito 6)
+    // hasta resolver bug de toolchain/host con MOV/STR en rutinas inline.
     .align 4
     print_dec_bytes:
         .word 0xd100c3ff, 0x2a0003e1, 0x91007be2, 0x52800143
@@ -185,9 +187,9 @@ emit_print_tail:
     movz    w12, #0x0000
     movk    w12, #0x1e26, lsl #16
     str     w12, [x20], #4
-    // copia print_dec_bytes (31 palabras, sin ret)
+    // copia print_dec_bytes (29 palabras, sin ret)
     ldr     x14, =print_dec_bytes
-    mov     w15, #31
+    mov     w15, #29
 print_copy:
     ldr     w12, [x14], #4
     str     w12, [x20], #4
