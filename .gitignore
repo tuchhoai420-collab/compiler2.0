@@ -1,0 +1,11 @@
+# Artefactos de compilación (EALN-64 zero-libc)
+*.o
+*.bin
+
+# Binarios generados
+/ealn-compiler
+/salida.out
+
+# System / editor
+.DS_Store
+*.swp

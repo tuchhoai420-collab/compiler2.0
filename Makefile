@@ -1,5 +1,4 @@
 AS  = as
-CC  = gcc
 LD  = ld
 
 ASM_SOURCES = src/boot/init.s \
@@ -9,23 +8,16 @@ ASM_SOURCES = src/boot/init.s \
               src/frontend/parser_core.s \
               src/backend/elf_emitter.s
 
-C_SOURCES   = src/main.c
-
 ASM_OBJECTS = $(ASM_SOURCES:.s=.o)
-C_OBJECTS   = $(C_SOURCES:.c=.o)
-OBJECTS     = $(ASM_OBJECTS) $(C_OBJECTS)
 EXECUTABLE  = ealn-compiler
 
 all: $(EXECUTABLE)
 
-$(EXECUTABLE): $(OBJECTS)
-	$(LD) $(OBJECTS) -o $@
+$(EXECUTABLE): $(ASM_OBJECTS)
+	$(LD) $(ASM_OBJECTS) -o $@
 
 %.o: %.s
 	$(AS) -g $< -o $@
 
-%.o: %.c
-	$(CC) -c -ffreestanding -nostdlib -o $@ $<
-
 clean:
-	rm -f $(OBJECTS) $(EXECUTABLE) salida.out
+	rm -f $(ASM_OBJECTS) $(EXECUTABLE) salida.out

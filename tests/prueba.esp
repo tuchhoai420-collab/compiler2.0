@@ -1,2 +1,3 @@
 sea limite = 100;
 fijo gravedad = 9;
+sea datos = [3, 5, 2, 8];

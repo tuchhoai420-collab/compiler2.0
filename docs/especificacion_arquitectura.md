@@ -12,3 +12,17 @@ Estructuras SoA (Estructura de Arreglos). Optimización implícita para SIMD/NEO
 
 ## 3. Memoria Zero-Pause
 Asignación por bloques masivos (Arenas) vía `sys_mmap`. Sin Garbage Collector. Liberación en O(1) modificando un solo registro.
+
+## 4. Paradigma Vector-Nativo (datos como PLANO)
+El lenguaje declara **planos de datos** (`sea datos = [3, 5, 2, 8];`) y el compilador los transforma
+en bloque sobre el hardware NEON: cada literal ocupa un lane de `v0.4S` y las reducciones
+(como la suma `ADDV v0.4S`) se ejecutan en **una sola instrucción**, rompiendo el procesamiento
+lineal elemento-por-elemento de los lenguajes humanos.
+
+## 5. Hoja de Ruta
+1. Vector-native + reducción SIMD (✔): `[3,5,2,8]` → suma = 18.
+2. **Output a STDOUT zero-libc (✔):** el programa generado imprime el resultado como texto decimal vía syscall `write`.
+3. Expresiones sobre planos (element-wise `+,-,*,/`).
+4. Reducciones/filtros nativos (`suma`, acumulados).
+5. Shape-types: `(ancho, lanes)` como sistema de tipos.
+6. Planos multidimensionales (tensor-planes).
