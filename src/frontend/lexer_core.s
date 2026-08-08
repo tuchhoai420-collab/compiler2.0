@@ -20,6 +20,7 @@
 .equ TOK_COMMA,     13
 .equ TOK_ASTERISCO, 14
 .equ TOK_SLASH,     15
+.equ TOK_COLON,     16
 
 .section .bss
     // Estructura de Arreglos (SoA) para Tokens
@@ -159,8 +160,17 @@ tok_asterisco:
     b       lex_loop
 tok_slash:
     cmp     w22, #'/'
-    b.ne    check_numeros
+    b.ne    tok_colon
     mov     w0, TOK_SLASH
+    mov     x1, x19
+    mov     w2, #1
+    bl      registrar_token
+    add     x19, x19, #1
+    b       lex_loop
+tok_colon:
+    cmp     w22, #':'
+    b.ne    check_numeros
+    mov     w0, TOK_COLON
     mov     x1, x19
     mov     w2, #1
     bl      registrar_token

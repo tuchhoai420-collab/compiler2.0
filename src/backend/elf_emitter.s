@@ -3,6 +3,7 @@
 .equ AT_FDCWD, -100
 .equ AST_VECTOR, 101
 .equ AST_VECBIN, 102
+.equ AST_VECBIN_BAD, 103
 
 // Códigos de operación (coinciden con OP_* del parser)
 .equ OP_ADD, 0
@@ -212,6 +213,11 @@ emit_bin:
     ldr     x6, [x21, #8]           // nodo plano izquierdo
     ldr     x7, [x21, #16]          // nodo plano derecho
 
+    // ── Shape-check en backend: verificar tipo válido ──
+    ldr     w4, [x21, #0]           // tipo de nodo
+    cmp     w4, #AST_VECBIN_BAD
+    b.eq    bin_shape_fallback       // si es inválido, no emitir NEON
+
     // ── cargar plano izquierdo en v0.4S ──
     ldr     w4, [x6, #16]           // count izq
     cmp     w4, #4
@@ -308,6 +314,10 @@ b_reduc:
     movk    w12, #0x4eb1, lsl #16
     str     w12, [x20], #4
     b       emit_print_tail
+
+bin_shape_fallback:
+    // Shape mismatch: no emitir NEON, solo avanzar al siguiente nodo
+    b       siguiente_nodo
 
 siguiente_nodo:
     ldr     x21, [x21, #24]         // x21 = nodo->next

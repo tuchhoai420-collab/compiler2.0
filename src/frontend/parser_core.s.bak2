@@ -4,7 +4,6 @@
 .equ AST_VAR_DECL,  100
 .equ AST_VECTOR,    101
 .equ AST_VECBIN,    102
-.equ AST_VECBIN_BAD, 103
 .equ TOK_ID,        1
 .equ TOK_NUM,       2
 .equ TOK_IGUAL,     3
@@ -304,6 +303,12 @@ bin_op_listo:
     bl      buscar_simb                 // x0 = nodo der
     cbz     x0, parser_error
     mov     x18, x0
+    // ── Shape-check: ambos operandos deben tener el mismo count ──
+    ldr     w4, [x17, #16]              // count izq
+    ldr     w5, [x18, #16]              // count der
+    cmp     w4, w5
+    b.ne    shape_mismatch
+
 
     // asignar nodo bin (48 bytes)
     mov     x0, #48
@@ -331,16 +336,12 @@ bin_config:
     str     x17, [x19, #8]              // left node
     str     x18, [x19, #16]             // right node
     str     w9, [x19, #32]              // op (w9 no lo pisa buscar_simb)
-
-    // ── Shape-check post-creación: marcar inválido si counts difieren ──
-    ldr     w4, [x17, #16]              // count izq
-    ldr     w5, [x18, #16]              // count der
-    cmp     w4, w5
-    b.eq    bin_shape_ok
-    mov     w2, #AST_VECBIN_BAD
-    str     w2, [x19]                   // marcar nodo como inválido
-bin_shape_ok:
     // avanzar x21: 7 tokens consumidos
+    add     x21, x21, #7
+    b       parser_loop
+
+bin_shape_fallback:
+    // Shape mismatch: saltar declaración (no generar código NEON)
     add     x21, x21, #7
     b       parser_loop
 
@@ -405,6 +406,11 @@ bs_fin:
     ret
 
 parser_error:
+shape_mismatch:
+    // Shape mismatch: saltar declaración (no generar código)
+    add     x21, x21, #7
+    b       parser_loop
+
     // En caso de error sintáctico, simplemente avanzamos (por ahora)
     add     x21, x21, #1
     b       parser_loop
