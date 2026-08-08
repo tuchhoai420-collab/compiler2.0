@@ -2,6 +2,12 @@
 
 .equ AT_FDCWD, -100
 .equ AST_VECTOR, 101
+.equ AST_VECBIN, 102
+
+// Códigos de operación (coinciden con OP_* del parser)
+.equ OP_ADD, 0
+.equ OP_SUB, 1
+.equ OP_MUL, 2
 
 .section .bss
     .align 4
@@ -96,6 +102,8 @@ emision_loop:
     cbz     x21, emision_finalizada
 
     ldr     w3, [x21]               // Tipo de nodo
+    cmp     w3, #102                // AST_VECBIN
+    b.eq    emit_bin
     cmp     w3, #101                // AST_VECTOR
     b.eq    emit_vector
     cmp     w3, #100                // AST_VAR_DECL
@@ -119,10 +127,13 @@ emision_loop:
 
 // ─────────────────────────────────────────────────────────────
 // emit_vector: Visión Alienígena — datos como PLANO.
-//   Carga cada literal en un lane de v0.4S (NEON) y reduce con
-//   ADDV en UNA sola instrucción. w0 = suma horizontal (resultado)
+//   Solo el nodo TERMINAL (último) emite la reducción + impresión.
+//   Carga cada literal en un lane de v0.4S y reduce con ADDV.
 // ─────────────────────────────────────────────────────────────
 emit_vector:
+    // ¿es el nodo terminal? si no, es solo una definición de datos
+    ldr     x22, [x21, #24]
+    cbnz    x22, siguiente_nodo
     ldr     w4, [x21, #16]          // count de elementos
     cmp     w4, #4
     ble     v_cap
@@ -163,28 +174,140 @@ v_reduc:
     movz    w12, #0xb800
     movk    w12, #0x4eb1, lsl #16
     str     w12, [x20], #4
-    // emitir: fmov w0, s0  (0x1e260000) → materializa W0 (ley del hardware)
+    b       emit_print_tail
+
+// ─────────────────────────────────────────────────────────────
+// emit_print_tail: materializa W0 (fmov), copia la rutina de
+//   impresión decimal y fuerza salida limpia (mov w0, #0).
+// ─────────────────────────────────────────────────────────────
+emit_print_tail:
+    // fmov w0, s0  (0x1e260000) → materializa W0 (ley del hardware)
     movz    w12, #0x0000
     movk    w12, #0x1e26, lsl #16
     str     w12, [x20], #4
-
-    // ── Volcar el resultado a STDOUT (print_dec_bytes) ──────────
-    // Copia la rutina de impresión decimal al búfer de opcodes.
+    // copia print_dec_bytes (31 palabras, sin ret)
     ldr     x14, =print_dec_bytes
-    mov     w15, #31                // palabras de la rutina (sin ret)
+    mov     w15, #31
 print_copy:
     ldr     w12, [x14], #4
     str     w12, [x20], #4
     sub     w15, w15, #1
     cbnz    w15, print_copy
-
-    // salida limpia tras imprimir (mov w0, #0  = 0x52800000)
+    // mov w0, #0  (0x52800000) → salida limpia tras imprimir
     movz    w12, #0x0000
     movk    w12, #0x5280, lsl #16
     str     w12, [x20], #4
-
-    mov     w23, #1                 // marcamos vector visto
+    mov     w23, #1                 // marcamos vector/expr visto
     b       siguiente_nodo
+
+// ─────────────────────────────────────────────────────────────
+// emit_bin: expresión element-wise entre dos planos (SIMD NEON).
+//   v0 = plano izq, v1 = plano der, v1.4S = v1.4S OP v0.4S,
+//   reduce v1 (ADDV) e imprime. Solo emite si es nodo terminal.
+// ─────────────────────────────────────────────────────────────
+emit_bin:
+    // ¿es el nodo terminal? (debe serlo para imprimir el resultado)
+    ldr     x22, [x21, #24]
+    cbnz    x22, siguiente_nodo
+    ldr     x6, [x21, #8]           // nodo plano izquierdo
+    ldr     x7, [x21, #16]          // nodo plano derecho
+
+    // ── cargar plano izquierdo en v0.4S ──
+    ldr     w4, [x6, #16]           // count izq
+    cmp     w4, #4
+    ble     b_cap0
+    mov     w4, #4
+b_cap0:
+    add     x8, x6, #32             // arreglo de literales
+    mov     w9, #0                  // lane
+b_load0:
+    cbz     w4, b_done0
+    ldr     x1, [x8], #8
+    stp     x20, x21, [sp, #-16]!
+    bl      parsear_entero          // w0 = valor
+    ldp     x20, x21, [sp], #16
+    // movz w1, #valor
+    movz    w12, #0x0001
+    movk    w12, #0x5280, lsl #16
+    lsl     w0, w0, #5
+    orr     w12, w12, w0
+    str     w12, [x20], #4
+    // mov v0.s[n], w1  (0x4e041c20 | n<<19)
+    movz    w13, #0x1c20
+    movk    w13, #0x4e04, lsl #16
+    mov     w12, w9
+    lsl     w12, w12, #19
+    orr     w13, w13, w12
+    str     w13, [x20], #4
+    add     w9, w9, #1
+    sub     w4, w4, #1
+    b       b_load0
+b_done0:
+
+    // ── cargar plano derecho en v1.4S ──
+    ldr     w4, [x7, #16]           // count der
+    cmp     w4, #4
+    ble     b_cap1
+    mov     w4, #4
+b_cap1:
+    add     x8, x7, #32
+    mov     w9, #0
+b_load1:
+    cbz     w4, b_done1
+    ldr     x1, [x8], #8
+    stp     x20, x21, [sp, #-16]!
+    bl      parsear_entero
+    ldp     x20, x21, [sp], #16
+    // movz w1, #valor
+    movz    w12, #0x0001
+    movk    w12, #0x5280, lsl #16
+    lsl     w0, w0, #5
+    orr     w12, w12, w0
+    str     w12, [x20], #4
+    // mov v1.s[n], w1  (0x4e041c21 | n<<19)
+    movz    w13, #0x1c21
+    movk    w13, #0x4e04, lsl #16
+    mov     w12, w9
+    lsl     w12, w12, #19
+    orr     w13, w13, w12
+    str     w13, [x20], #4
+    add     w9, w9, #1
+    sub     w4, w4, #1
+    b       b_load1
+b_done1:
+
+    // ── emitir operación element-wise: v1.4S = v1.4S OP v0.4S ──
+    ldr     w5, [x21, #32]          // código de operación
+    cmp     w5, OP_ADD
+    b.eq    b_add
+    cmp     w5, OP_SUB
+    b.eq    b_sub
+    cmp     w5, OP_MUL
+    b.eq    b_mul
+    b       siguiente_nodo          // op desconocida: no emite
+b_add:
+    // add v1.4s, v1.4s, v0.4s = 0x4ea08421
+    movz    w12, #0x8421
+    movk    w12, #0x4ea0, lsl #16
+    str     w12, [x20], #4
+    b       b_reduc
+b_sub:
+    // sub v1.4s, v0.4s, v1.4s = 0x6ea18401  (a - b, orden correcto)
+    movz    w12, #0x8401
+    movk    w12, #0x6ea1, lsl #16
+    str     w12, [x20], #4
+    b       b_reduc
+b_mul:
+    // mul v1.4s, v1.4s, v0.4s = 0x4ea09c21
+    movz    w12, #0x9c21
+    movk    w12, #0x4ea0, lsl #16
+    str     w12, [x20], #4
+b_reduc:
+    // addv s0, v1.4s = 0x4eb1b820  → reduce v1 en S0
+    movz    w12, #0xb820
+    movk    w12, #0x4eb1, lsl #16
+    str     w12, [x20], #4
+    b       emit_print_tail
 
 siguiente_nodo:
     ldr     x21, [x21, #24]         // x21 = nodo->next

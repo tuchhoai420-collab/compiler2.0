@@ -60,14 +60,18 @@ El pipeline del compilador está compuesto por los siguientes módulos integrado
 ### E. Analizador Sintáctico / Parser (`src/frontend/parser_core.s`)
 *   Recorre secuencialmente el SoA de tokens.
 *   Construye un AST compacto en el Arena sin overhead de punteros innecesarios. El AST resultante apunta al primer valor numérico mediante el nodo raíz `ast_root_ptr`.
-*   Soporta **dos formas de declaración**:
+*   **Tabla de símbolos:** registra cada plano con nombre (`name → nodo AST`) para que las expresiones las referencien por nombre (no por posición).
+*   Soporta **tres formas de declaración**:
     *   Escalar: `(sea|fijo) ID = NUM ;` → nodo `AST_VAR_DECL` (100).
-    *   **Vector / Plano de datos**: `(sea|fijo) ID = [NUM, NUM, ...];` → nodo `AST_VECTOR` (101) con `[type][name][count][next][elems*]`.
+    *   Plano: `(sea|fijo) ID = [NUM, ...];` → nodo `AST_VECTOR` (101).
+    *   Expresión element-wise: `(sea|fijo) ID = ID ( + | - | * ) ID ;` → nodo `AST_VECBIN` (102).
+*   El nodo raíz del AST se expone mediante `ast_root_ptr`.
 
 ### F. Generador ELF / Backend (`src/backend/elf_emitter.s`)
 *   Convierte los valores literales del AST de ASCII a enteros mediante `parsear_entero`.
 *   **Escalares:** emite `MOVZ` directo (carga inmediata).
-*   **Planos vectoriales (paradigma alien):** emite código NEON nativo que carga cada literal en un lane de `v0.4S` y reduce con **`ADDV v0.4S` en UNA sola instrucción** (data-parallel), materializando el resultado con `FMOV w0, s0`.
+*   **Planos vectoriales (paradigma alien):** emite código NEON nativo que carga cada literal en un lane de `v0.4S`/`v1.4S` y reduce con **`ADDV` en UNA sola instrucción** (data-parallel), materializando el resultado con `FMOV w0, s0`.
+*   **Expresiones element-wise (Hito 3):** el parser resuelve referencias nominales (`a`, `b`) mediante una **tabla de símbolos** en el Arena; el backend carga ambos planos en `v0`/`v1` y aplica la operación SIMD nativa (`ADD`/`SUB`/`MUL v1.4S, ...`) **sin bucles**, reduciendo e imprimiendo el resultado.
 *   **Output a STDOUT (zero-libc):** tras la reducción, inyecta una rutina nativa de impresión decimal (`print_dec_bytes`) que convierte el resultado y lo escribe vía syscall `write` directa. El programa generado **imprime el resultado como texto** y sale con código 0.
 *   Genera opcodes ARM64 de forma directa en `opcode_buffer`, incluyendo instrucciones de carga inmediata (`MOVZ`), de duplicación SIMD (`DUP v0.4S, w0`), sumas paralelas vectoriales (`ADD v0.4S, v0.4S, v0.4S`), y código de salida (`MOV x8, #93; SVC #0`).
 *   Construye y emite un archivo ELF ejecutable autocontenido de aproximadamente 140 bytes en `"salida.out"` mediante llamadas a sistema directas (`openat`, `write`, `close`).

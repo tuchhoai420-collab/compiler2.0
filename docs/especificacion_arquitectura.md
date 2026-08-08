@@ -21,8 +21,11 @@ lineal elemento-por-elemento de los lenguajes humanos.
 
 ## 5. Hoja de Ruta
 1. Vector-native + reducción SIMD (✔): `[3,5,2,8]` → suma = 18.
-2. **Output a STDOUT zero-libc (✔):** el programa generado imprime el resultado como texto decimal vía syscall `write`.
-3. Expresiones sobre planos (element-wise `+,-,*,/`).
-4. Reducciones/filtros nativos (`suma`, acumulados).
+2. Output a STDOUT zero-libc (✔): el programa generado imprime el resultado como texto decimal vía syscall `write`.
+3. **Expresiones element-wise sobre planos (✔):** `r = a + b;`, `r = a - b;`, `r = a * b;` — código SIMD nativo (ADD/SUB/MUL v1.4S), reducción vectorial e impresión del resultado.
+4. Reducciones/filtros nativos adicionales (`suma` explícita, acumulados).
 5. Shape-types: `(ancho, lanes)` como sistema de tipos.
 6. Planos multidimensionales (tensor-planes).
+
+> **Nota de hardware:** la división `/` entre planos no tiene equivalente nativo en NEON
+> (es SVE); se implementará vía aproximación de recíproco en un hito futuro.

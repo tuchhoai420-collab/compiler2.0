@@ -18,6 +18,8 @@
 .equ TOK_LBRACKET,  11
 .equ TOK_RBRACKET,  12
 .equ TOK_COMMA,     13
+.equ TOK_ASTERISCO, 14
+.equ TOK_SLASH,     15
 
 .section .bss
     // Estructura de Arreglos (SoA) para Tokens
@@ -139,8 +141,26 @@ tok_rbracket:
     b       lex_loop
 tok_comma:
     cmp     w22, #','
-    b.ne    check_numeros
+    b.ne    tok_asterisco
     mov     w0, TOK_COMMA
+    mov     x1, x19
+    mov     w2, #1
+    bl      registrar_token
+    add     x19, x19, #1
+    b       lex_loop
+tok_asterisco:
+    cmp     w22, #'*'
+    b.ne    tok_slash
+    mov     w0, TOK_ASTERISCO
+    mov     x1, x19
+    mov     w2, #1
+    bl      registrar_token
+    add     x19, x19, #1
+    b       lex_loop
+tok_slash:
+    cmp     w22, #'/'
+    b.ne    check_numeros
+    mov     w0, TOK_SLASH
     mov     x1, x19
     mov     w2, #1
     bl      registrar_token

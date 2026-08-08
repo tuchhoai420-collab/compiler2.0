@@ -3,33 +3,52 @@
 
 .equ AST_VAR_DECL,  100
 .equ AST_VECTOR,    101
+.equ AST_VECBIN,    102
 .equ TOK_ID,        1
 .equ TOK_NUM,       2
 .equ TOK_IGUAL,     3
 .equ TOK_PUNTOCOMA, 4
 .equ TOK_SEA,       5
 .equ TOK_FIJO,      6
+.equ TOK_MAS,       7
+.equ TOK_MENOS,     8
 .equ TOK_LBRACKET,  11
 .equ TOK_RBRACKET,  12
 .equ TOK_COMMA,     13
+.equ TOK_ASTERISCO, 14
+.equ TOK_SLASH,     15
+
+// Códigos de operación element-wise (Hito 3)
+.equ OP_ADD,  0
+.equ OP_SUB,  1
+.equ OP_MUL,  2
+
+// Límite de símbolos en la tabla (planos con nombre)
+.equ MAX_SIMB, 32
 
 .section .bss
-    ast_root_ptr: .skip 8
+    ast_root_ptr:   .skip 8
+    simb_nombres:   .skip 8*MAX_SIMB
+    simb_longs:     .skip 8*MAX_SIMB
+    simb_nodos:     .skip 8*MAX_SIMB
+    simb_conteo:    .skip 8
 
 .section .text
 // ─────────────────────────────────────────────────────────────────
 // Inicia el Parser (Visión Alienígena: lee tokens SoA secuencialmente)
 // ─────────────────────────────────────────────────────────────────
 iniciar_parser:
-    stp     x19, x20, [sp, #-48]!
+    stp     x19, x20, [sp, #-64]!
     stp     x21, x22, [sp, #16]
-    stp     x23, x30, [sp, #32]
+    stp     x23, x24, [sp, #32]
+    stp     x25, x30, [sp, #48]
 
     ldr     x20, =token_conteo
     ldr     x20, [x20]
     mov     x21, #0                 // Índice de token actual
     ldr     x22, =token_tipos
     ldr     x23, =token_inicios
+    ldr     x25, =token_longitudes
 
 parser_loop:
     cmp     x21, x20
@@ -65,14 +84,18 @@ parse_declaracion:
     cmp     w1, TOK_IGUAL
     b.ne    parser_error
 
-    // 4. Despachar según token +3: LBRACKET (vector) o NUM (escalar)
+    // 4. Despachar según token +3: LBRACKET (vector), NUM (escalar) o ID (expr binaria)
     add     x1, x21, #3
     ldrb    w1, [x22, x1]
     cmp     w1, TOK_LBRACKET
     b.eq    parse_vector
     cmp     w1, TOK_NUM
-    b.ne    parser_error
+    b.eq    parse_escalar
+    cmp     w1, TOK_ID
+    b.eq    parse_bin
+    b       parser_error
 
+parse_escalar:
     // 5. Escalar: NUM + PUNTOCOMA
     add     x1, x21, #4
     ldrb    w1, [x22, x1]
@@ -202,12 +225,174 @@ pvector_fill:
     sub     x7, x7, #1
     b       pvector_fill
 pvector_fin:
+    mov     x7, x6                  // conservar count (registrar_simb pisa x6)
+    // registrar símbolo en la tabla (nombre → nodo) para expresiones binarias
+    add     x1, x21, #1
+    ldr     x1, [x23, x1, lsl #3]       // puntero al nombre
+    add     x3, x21, #1
+    ldrh    w2, [x25, x3, lsl #1]       // longitud del nombre
+    mov     x3, x19                     // nodo del plano
+    bl      registrar_simb
     // avanzar x21: 2*count + 5 tokens consumidos
-    mov     x0, x6
+    mov     x0, x7
     lsl     x0, x0, #1
     add     x0, x0, #5
     add     x21, x21, x0
     b       parser_loop
+
+// ─────────────────────────────────────────────────────────────
+// parse_bin: sea/fijo ID = ID OP ID ;
+//   nodo: [type:4][pad:4][left:8][right:8][next:8][op:4]
+//   type = AST_VECBIN (102). left/right = punteros a los planos.
+// ─────────────────────────────────────────────────────────────
+parse_bin:
+    // x21 en SEA/FIJO. Tokens: +1 ID(res), +2 '=', +3 ID(izq), +4 OP, +5 ID(der), +6 ';'
+    add     x1, x21, #6
+    cmp     x1, x20
+    b.ge    parser_error
+
+    // +3 debe ser ID (ref izquierda)
+    add     x1, x21, #3
+    ldrb    w1, [x22, x1]
+    cmp     w1, TOK_ID
+    b.ne    parser_error
+    // +4 debe ser operador aritmético
+    add     x1, x21, #4
+    ldrb    w1, [x22, x1]
+    cmp     w1, TOK_MAS
+    b.eq    bin_op_add
+    cmp     w1, TOK_MENOS
+    b.eq    bin_op_sub
+    cmp     w1, TOK_ASTERISCO
+    b.eq    bin_op_mul
+    // TOK_SLASH: división vectorial pendiente (NEON no nativa)
+    b       parser_error
+bin_op_add:
+    mov     w9, OP_ADD
+    b       bin_op_listo
+bin_op_sub:
+    mov     w9, OP_SUB
+    b       bin_op_listo
+bin_op_mul:
+    mov     w9, OP_MUL
+bin_op_listo:
+    // +5 debe ser ID (ref derecha)
+    add     x1, x21, #5
+    ldrb    w1, [x22, x1]
+    cmp     w1, TOK_ID
+    b.ne    parser_error
+    // +6 debe ser PUNTOCOMA
+    add     x1, x21, #6
+    ldrb    w1, [x22, x1]
+    cmp     w1, TOK_PUNTOCOMA
+    b.ne    parser_error
+
+    // resolver operando izquierdo
+    add     x1, x21, #3
+    ldr     x1, [x23, x1, lsl #3]       // puntero nombre izq
+    add     x3, x21, #3
+    ldrh    w2, [x25, x3, lsl #1]       // longitud
+    bl      buscar_simb                 // x0 = nodo izq
+    cbz     x0, parser_error
+    mov     x17, x0
+    // resolver operando derecho
+    add     x1, x21, #5
+    ldr     x1, [x23, x1, lsl #3]       // puntero nombre der
+    add     x3, x21, #5
+    ldrh    w2, [x25, x3, lsl #1]
+    bl      buscar_simb                 // x0 = nodo der
+    cbz     x0, parser_error
+    mov     x18, x0
+
+    // asignar nodo bin (48 bytes)
+    mov     x0, #48
+    bl      alloc_arena
+    // encadenar
+    ldr     x1, =ast_root_ptr
+    ldr     x2, [x1]
+    cbnz    x2, bin_encadenar
+    str     x0, [x1]
+    b       bin_config
+bin_encadenar:
+    mov     x3, x2
+7:
+    ldr     x4, [x3, #24]
+    cbz     x4, 8f
+    mov     x3, x4
+    b       7b
+8:
+    str     x0, [x3, #24]
+bin_config:
+    mov     x19, x0
+    str     xzr, [x19, #24]             // next = NULL
+    mov     w2, AST_VECBIN
+    str     w2, [x19]                   // type
+    str     x17, [x19, #8]              // left node
+    str     x18, [x19, #16]             // right node
+    str     w9, [x19, #32]              // op (w9 no lo pisa buscar_simb)
+    // avanzar x21: 7 tokens consumidos
+    add     x21, x21, #7
+    b       parser_loop
+
+// ─────────────────────────────────────────────────────────────
+// registrar_simb: añade (nombre, longitud, nodo) a la tabla.
+//   entrada: x1 = puntero nombre, w2 = longitud, x3 = nodo
+// ─────────────────────────────────────────────────────────────
+registrar_simb:
+    ldr     x4, =simb_conteo
+    ldr     x5, [x4]
+    cmp     x5, #MAX_SIMB
+    b.ge    rs_fin
+    ldr     x6, =simb_nombres
+    str     x1, [x6, x5, lsl #3]
+    ldr     x6, =simb_longs
+    str     x2, [x6, x5, lsl #3]
+    ldr     x6, =simb_nodos
+    str     x3, [x6, x5, lsl #3]
+    add     x5, x5, #1
+    str     x5, [x4]
+rs_fin:
+    ret
+
+// ─────────────────────────────────────────────────────────────
+// buscar_simb: busca (nombre, longitud) en la tabla de símbolos.
+//   entrada: x1 = puntero nombre, w2 = longitud
+//   salida : x0 = nodo encontrado, o 0 si no existe
+// ─────────────────────────────────────────────────────────────
+buscar_simb:
+    mov     x11, #0                     // índice i
+    ldr     x4, =simb_conteo
+    ldr     x13, [x4]
+bs_loop:
+    cmp     x11, x13
+    b.ge    bs_noencontrado
+    ldr     x4, =simb_longs
+    ldr     x12, [x4, x11, lsl #3]
+    cmp     x12, x2                     // ¿misma longitud?
+    b.ne    bs_sig
+    ldr     x4, =simb_nombres
+    ldr     x12, [x4, x11, lsl #3]      // nombre candidato
+    mov     x14, #0                     // k
+bs_cmp:
+    cmp     x14, x2
+    b.ge    bs_match
+    ldrb    w15, [x1, x14]
+    ldrb    w16, [x12, x14]
+    cmp     w15, w16
+    b.ne    bs_sig
+    add     x14, x14, #1
+    b       bs_cmp
+bs_match:
+    ldr     x4, =simb_nodos
+    ldr     x0, [x4, x11, lsl #3]
+    b       bs_fin
+bs_sig:
+    add     x11, x11, #1
+    b       bs_loop
+bs_noencontrado:
+    mov     x0, #0
+bs_fin:
+    ret
 
 parser_error:
     // En caso de error sintáctico, simplemente avanzamos (por ahora)
@@ -215,8 +400,9 @@ parser_error:
     b       parser_loop
 
 parser_fin:
-    ldp     x23, x30, [sp, #32]
+    ldp     x25, x30, [sp, #48]
+    ldp     x23, x24, [sp, #32]
     ldp     x21, x22, [sp, #16]
-    ldp     x19, x20, [sp], #48
+    ldp     x19, x20, [sp], #64
     ret
 
